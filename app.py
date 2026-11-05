@@ -22,8 +22,8 @@ if not os.path.exists(EPHE_PATH):
 
 swe.set_ephe_path(EPHE_PATH)
 
-st.title("النظام المتقدم لتحليل خارطة الحدث العاطفي 💖 ( برمجة الفلكي استرو رادار )")
-st.markdown("تحليل تنجيمي عميق يغطي دلالات الانفصال، الانسحاب، المشاجرات، الأسباب الدقيقة، وتحديد أدوار الأطراف الثالثة بدقة مع حساب الإقبال والإنصراف والوقت المتوقع للرجوع.")
+st.title("النظام المتقدم لتحليل خارطة الحدث العاطفي 💖 (برمجة الفلكي استرو رادار)")
+st.markdown("تحليل فلكي دقيق وشامل يغطي دلالات الانفصال، الانسحاب، المشاجرات، والوقت المتوقع للرجوع مع تحكم كامل ودقيق بالوقت والتاريخ.")
 st.markdown("---")
 
 # ==========================================
@@ -96,7 +96,7 @@ EVENT_TYPES = {
 }
 
 # ==========================================
-# الشريط الجانبي للإدخالات
+# الشريط الجانبي للإدخالات (مع تحكم دقيق بالساعات والدقائق)
 # ==========================================
 st.sidebar.header("⚙️ إعدادات حدث اللحظة العاطفية")
 
@@ -106,8 +106,24 @@ selected_event_key = st.sidebar.selectbox(
 event_purpose = EVENT_TYPES[selected_event_key]
 
 now_local = datetime.now()
-ev_date = st.sidebar.date_input("تاريخ وقوع الحدث:", value=now_local.date())
-ev_time = st.sidebar.time_input("وقت وقوع الحدث (المحلي):", value=now_local.time())
+ev_date = st.sidebar.date_input(
+    "تاريخ وقوع الحدث:",
+    value=now_local.date(),
+    min_value=date(1800, 1, 1),
+    max_value=date(2100, 12, 31)
+)
+
+# استبدال time_input بحقول رقمية دقيقة تتيح اختيار أي دقيقة وثانية بحرية تامة
+st.sidebar.markdown("🕒 **وقت وقوع الحدث (المحلي):**")
+col_h, col_m, col_s = st.sidebar.columns(3)
+with col_h:
+    ev_hour = st.number_input("الساعة", min_value=0, max_value=23, value=now_local.hour, step=1)
+with col_m:
+    ev_minute = st.number_input("الدقيقة", min_value=0, max_value=59, value=now_local.minute, step=1)
+with col_s:
+    ev_second = st.number_input("الثانية", min_value=0, max_value=59, value=now_local.second, step=1)
+
+ev_time = time(int(ev_hour), int(ev_minute), int(ev_second))
 
 selected_country_name = st.sidebar.selectbox("اختر الدولة:", country_list, index=country_list.index("United Arab Emirates") if "United Arab Emirates" in country_list else 0)
 country_code = country_map[selected_country_name]
@@ -156,22 +172,17 @@ if st.button("🔮 تحليل خريطة الحدث العاطفي"):
         "نبتون (Neptune)": swe.NEPTUNE,
         "بلوتو (Pluto)": swe.PLUTO,
         "تشيرون (Chiron)": swe.CHIRON,
-        "سيريس (Ceres)": swe.CERES,
-        "بالاس (Pallas)": swe.PALLAS,
-        "جونو (Juno)": swe.JUNO,
-        "فيستا (Vesta)": swe.VESTA,
     }
 
     ast_offset = getattr(swe, 'SE_AST_OFFSET', 10000)
     asteroid_ids = {
         "إيروس (Eros - الشغف والرغبة)": ast_offset + 433,
         "بسايكي (Psyche - الارتباط الروحي)": ast_offset + 16,
-        "أمور (Amor - الحب الأفلاطوني)": ast_offset + 1221
     }
 
     planet_data = {}
     for p_name, p_id in planets.items():
-        res, _ = swe.calc_ut(jd, p_id)
+        res, _ = swe.calc_ut(jd, p_id, swe.FLG_SWIEPH | swe.FLG_SPEED)
         planet_data[p_name] = {
             "lon": res[0],
             "sign": get_sign_and_deg(res[0])[0],
@@ -182,7 +193,7 @@ if st.button("🔮 تحليل خريطة الحدث العاطفي"):
 
     for a_name, a_id in asteroid_ids.items():
         try:
-            res, _ = swe.calc_ut(jd, a_id)
+            res, _ = swe.calc_ut(jd, a_id, swe.FLG_SWIEPH | swe.FLG_SPEED)
             planet_data[a_name] = {
                 "lon": res[0],
                 "sign": get_sign_and_deg(res[0])[0],
@@ -194,20 +205,23 @@ if st.button("🔮 تحليل خريطة الحدث العاطفي"):
             continue
 
     # ==========================================
-    # التصحيح الدقيق: مصفوفة البيوت في pyswisseph من 0 إلى 11
-    # الفهرس 0 = البيت الأول (الطالع) | الفهرس 6 = البيت السابع
+    # معالجة مصفوفة البيوت وطول الـ Tuple بأمان تام
     # ==========================================
     houses_cusps, ascmc = swe.houses_ex(jd, lat, lon, b"R")
     
-    asc_lon = houses_cusps[0]  
+    asc_lon = ascmc[0]  
     asc_sign, asc_deg = get_sign_and_deg(asc_lon)
+
+    if len(houses_cusps) >= 13:
+        cusps = list(houses_cusps[1:13])
+    else:
+        cusps = list(houses_cusps[:12])
 
     def find_house(p_lon):
         p_lon = p_lon % 360
         for i in range(12):
-            c_start = houses_cusps[i] % 360
-            next_idx = (i + 1) % 12
-            c_end = houses_cusps[next_idx] % 360
+            c_start = cusps[i] % 360
+            c_end = cusps[(i + 1) % 12] % 360
             if c_start < c_end:
                 if c_start <= p_lon < c_end:
                     return i + 1
@@ -220,11 +234,11 @@ if st.button("🔮 تحليل خريطة الحدث العاطفي"):
         planet_data[p_name]["house"] = find_house(planet_data[p_name]["lon"])
 
     party1_ruler = RULERS[asc_sign]
-    desc_cusp_lon = houses_cusps[6]  # البيت السابع هو الفهرس 6 آمن ودقيق
+    desc_cusp_lon = cusps[6]  
     desc_sign, _ = get_sign_and_deg(desc_cusp_lon)
     party2_ruler = RULERS[desc_sign]
 
-    st.success("✨ تم حساب الخريطة الفلكية بنجاح عبر محرك Swiss Ephemeris وفق نظام ريغومونتانوس (تم تصحيح فهرسة البيوت 0-11 بنجاح)!")
+    st.success("✨ تم حساب الخريطة الفلكية وتوزيع البيوت بدقة تامة!")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -232,21 +246,19 @@ if st.button("🔮 تحليل خريطة الحدث العاطفي"):
         st.write(f"- **الطالع:** {asc_sign} ({asc_deg:.2f}°)")
         st.write(f"- **حاكم الطرف الأول:** {party1_ruler} (في البرج: {planet_data[party1_ruler]['sign']}، البيت {planet_data[party1_ruler]['house']})")
         st.write(f"- **القمر (المشاعر الحالية):** {planet_data['القمر']['sign']} ({planet_data['القمر']['deg']:.2f}°) في البيت {planet_data['القمر']['house']}")
-        if "إيروس (Eros - الشغف والرغبة)" in planet_data:
-            st.write(f"- **إيروس (الشغف):** {planet_data['إيروس (Eros - الشغف والرغبة)']['sign']} (البيت {planet_data['إيروس (Eros - الشغف والرغبة)']['house']})")
 
     with col2:
         st.markdown(f"### 👩‍❤️‍👨 الطرف الثاني (الشريك / البيت السابع)")
         st.write(f"- **رأس السابع:** {desc_sign}")
         st.write(f"- **حاكم الطرف الثاني:** {party2_ruler} (في البرج: {planet_data[party2_ruler]['sign']}، البيت {planet_data[party2_ruler]['house']})")
         st.write(f"- **الزهرة (دلالة الحب):** {planet_data['الزهرة']['sign']} (البيت {planet_data['الزهرة']['house']})")
-        if "بسايكي (Psyche - الارتباط الروحي)" in planet_data:
-            st.write(f"- **بسايكي (الارتباط):** {planet_data['بسايكي (Psyche - الارتباط الروحي)']['sign']} (البيت {planet_data['بسايكي (Psyche - الارتباط الروحي)']['house']})")
 
     st.markdown("---")
-    st.markdown("### 🔬 محرك التشخيص النفسي والفلكي للأسباب (Detailed Diagnostic Engine)")
+    st.markdown("### 🔬 محرك التشخيص الفلكي الدقيق للأسباب")
 
     def check_aspect(p1_name, p2_name):
+        if p1_name not in planet_data or p2_name not in planet_data:
+            return False, None, None, 0.0, None
         lon1 = planet_data[p1_name]["lon"]
         lon2 = planet_data[p2_name]["lon"]
         speed1 = planet_data[p1_name]["speed"]
@@ -284,107 +296,71 @@ if st.button("🔮 تحليل خريطة الحدث العاطفي"):
     if event_purpose == "لقاء":
         if not planet_data["عطارد"]["retro"]:
             detailed_causes.append({
-                "category": "انسجام الحوار والتواصل الفكري",
-                "desc": "حركة عطارد المباشرة وتواجده في موقع مناسب يعكس حواراً سلساً وتفاهماً واضحاً أثناء اللقاء، مما أتاح للطرفين التعبير عن المشاعر بوضوح."
+                "category": "انسجام الحوار والتواصل",
+                "desc": "حركة عطارد المباشرة تعكس حواراً سلساً وتفاهماً واضحاً أثناء اللقاء."
             })
         else:
             detailed_causes.append({
-                "category": "لقاء لاستعادة ذكريات أو حوار سابق",
-                "desc": "تراجع عطارد أثناء اللقاء يشير إلى أن اللقاء تم لإعادة فتح مواضيع قديمة، أو لاسترجاع ذكريات سابقة بين الطرفين."
+                "category": "استرجاع ذكريات سابقة",
+                "desc": "تراجع عطارد يشير إلى فتح مواضيع قديمة واسترجاع ذكريات بين الطرفين."
             })
-
-        _, v_m_name, v_m_type, _, _ = check_aspect("الزهرة", "المريخ")
-        if v_m_type in ["positive", "neutral"]:
-            detailed_causes.append({
-                "category": "شغف وانجذاب عاطفي وجسدي قوي",
-                "desc": f"الاتصال الإيجابي ({v_m_name}) بين الزهرة والمريخ يمنح اللقاء طاقة عالية من الشغف المتبادل والجاذبية العاطفية القوية."
-            })
-        else:
-            detailed_causes.append({
-                "category": "بحث عن الأمان والتقارب العاطفي",
-                "desc": "تتواجد الزهرة والقمر في مواقع تدعم التقارب النفسي والبحث عن الراحة العاطفية وكسر الحواجز بين الطرفين."
-            })
-
         if has_aspect:
             detailed_causes.append({
-                "category": "تلاقي الإرادات وتوافق التوقيت",
-                "desc": f"وجود اتصال فلكي ({asp_name} - {asp_status}) بين حاكم الطالع وحاكم البيت السابع يعكس توافق النوايا ورغبة الطرفين الصادقة في تجسيد هذا اللقاء."
+                "category": "توافق النوايا",
+                "desc": f"وجود اتصال فلكي ({asp_name} - {asp_status}) بين حاكم الطالع وحاكم الشريك يعكس رغبة صادقة في اللقاء."
             })
-        else:
-            detailed_causes.append({
-                "category": "لقاء مدفوع بالظروف أو بمبادرة أحد الأطراف",
-                "desc": "اللقاء جرى بناءً على ترتيبات مواتية أو دافع نفسي قوي لدى أحد الطرفين لتجديد التواصل."
-            })
-
     elif event_purpose == "مشاجرة":
         detailed_causes.append({
-            "category": "تصادم في وجهات النظر واحتكاك لفظي حاد",
-            "desc": "طبيعة الخريطة تشير إلى توتر في لغة الحوار أو اختلاف في التوقعات اللحظية أدى إلى مشاجرة وسوء فهم مباشر."
+            "category": "احتكاك لفظي واختلاف وجهات نظر",
+            "desc": "طبيعة الخريطة تشير إلى توتر لفظي لحظي واختلاف في التوقعات أدى لاحتكاك مباشر."
         })
-        mars_sat_asp, _, _, _, _ = check_aspect("المريخ", "زحل")
-        if mars_sat_asp or planet_data["المريخ"]["house"] in [1, 7]:
-            detailed_causes.append({
-                "category": "عناد وطاقة غضب مكبوتة",
-                "desc": "وجود اتصالات ضاغطة تخص المريخ تعكس حدة في ردود الفعل، عناداً متبادلاً، وعدم تنازل أي طرف عن موقفه."
-            })
-
     elif event_purpose == "انسحاب":
         detailed_causes.append({
-            "category": "رغبة في الهدوء والابتعاد المؤقت",
-            "desc": "الانسحاب جاء نتيجة حاجة ملحة لالتقاط الأنفاس، الهروب من الضغوط، أو تفادي تفاقم النقاشات الحادة."
+            "category": "رغبة بالهدوء المؤقت",
+            "desc": "الانسحاب جاء نتيجة حاجة ملحة لالتقاط الأنفاس وتفادي تفاقم النقاشات."
         })
-        moon_nep_asp, _, _, _, _ = check_aspect("القمر", "نبتون (Neptune)")
-        if moon_nep_asp or planet_data["القمر"]["house"] in [12, 8]:
-            detailed_causes.append({
-                "category": "حساسية مفرطة وانكفاء عاطفي",
-                "desc": "المشاعر الحالية تميل للصمت، الانعزال الداخلي، والتقوقع خوفاً من التعرض لخيبة أمل جديدة."
-            })
-
     else:
-        merc_sat_asp, _, _, _, _ = check_aspect("عطارد", "زحل")
-        merc_mars_asp, _, m_asp_type, _, _ = check_aspect("عطارد", "المريخ")
-        if planet_data["عطارد"]["retro"] or merc_sat_asp or (merc_mars_asp and m_asp_type == "negative") or planet_data["عطارد"]["house"] in [3, 6, 12]:
-            detailed_causes.append({
-                "category": "أسلوب تواصل غير مقبول أو حاد",
-                "desc": "وجود عطارد في وضعية متراجعة أو تحت ضغط زحل والمريخ يشير إلى جارحة في الكلام، جفاف في الحوار، أو سوء فهم لفظي متكرر."
-            })
-
-        plu_ven_asp, _, _, _, _ = check_aspect("الزهرة", "بلوتو (Pluto)")
-        h8_planets = [p for p, info in planet_data.items() if info["house"] == 8]
-        h12_planets = [p for p, info in planet_data.items() if info["house"] == 12]
-        if plu_ven_asp or len(h8_planets) > 0 or len(h12_planets) > 0:
-            detailed_causes.append({
-                "category": "اكتشاف سر، غموض، أو شبهة خيانة",
-                "desc": "تفعيل البيوت الثامنة والثانية عشرة أو اتصالات بلوتو بالزهرة تكشف عن صدمة متعلقة بانكشاف أسرار مخفية وفقدان الثقة."
-            })
+        detailed_causes.append({
+            "category": "فراق أو جفاء في التواصل",
+            "desc": "وجود ضغوط فلكية تعكس جفاءً أو سوء فهم لفظي متكرر أدى لقرار الانفصال."
+        })
 
     st.info(f"📌 **طبيعة الحدث المحدد:** {selected_event_key}")
-    st.markdown("#### ⚙️ التشخيص التفصيلي لحدث اللحظة العاطفية:")
+    st.markdown("#### ⚙️ التشخيص التفصيلي:")
     for cause in detailed_causes:
         st.markdown(f"- **{cause['category']}:** {cause['desc']}")
 
     st.markdown("---")
-    st.markdown("### 👥 تحليل الأطراف الثالثة وتحديد هويتهم")
+    st.markdown("### 👥 تحليل الأطراف الثالثة (مفلتر وصارم)")
 
     third_parties_found = []
-    for h_num, title_prefix, desc_text in [
-        (3, "محيط الأقارب أو الجيران / نقاشات ودية أو نميمة", "البيت الثالث"),
-        (4, "أجواء المنزل أو ضغوط العائلة والوالدين", "البيت الرابع"),
-        (5, "غيرة أو طرف منافس عاطفي / معجب خارجي", "البيت الخامس"),
-        (7, "شخص منافس أو طرف معلن أو وسطاء خير", "البيت السابع"),
-        (11, "الأصدقاء المشتركون والشبكة الاجتماعية", "البيت الحادي عشر"),
-        (12, "أعداء مخفيون أو وشاية سرية أو خلوة", "البيت الثاني عشر")
-    ]:
+    target_tp_houses = {
+        5: ("علاقة عاطفية بديلة أو طرف منافس (البيت الخامس)", "وجود كواكب في البيت الخامس قد يشير لمنافسة أو اهتمام عاطفي خارجي."),
+        12: ("أسرار مخفية أو تأثير خفي (البيت الثاني عشر)", "وجود كواكب في البيت الثاني عشر يعكس أسراراً غير معلومة أو وشاية سرية."),
+        11: ("ضغط المحيط الاجتماعي أو الأصدقاء (البيت الحادي عشر)", "تدخلات واضحة من شبكة المعارف والأصدقاء المشتركين.")
+    }
+
+    for h_num, (tp_title, tp_desc) in target_tp_houses.items():
         h_planets = [p for p, info in planet_data.items() if info["house"] == h_num and p not in [party1_ruler, party2_ruler, "الشمس", "القمر"]]
         if h_planets:
-            third_parties_found.append((f"{title_prefix} ({desc_text})", f"وجود كواكب مؤثرة ({', '.join(h_planets)}) يعكس تدخلاً أو تأثيراً مباشراً من هذا القطاع."))
+            confirmed = False
+            for hp in h_planets:
+                has_asp, _, asp_t, _, _ = check_aspect(hp, party1_ruler)
+                if has_asp and asp_t == "negative":
+                    confirmed = True
+                has_asp2, _, asp_t2, _, _ = check_aspect(hp, party2_ruler)
+                if has_asp2 and asp_t2 == "negative":
+                    confirmed = True
+            
+            if confirmed or len(h_planets) >= 2:
+                third_parties_found.append((tp_title, f"{tp_desc} الكواكب المرصودة: ({', '.join(h_planets)})."))
 
     if third_parties_found:
-        st.warning("⚠️ **تم رصد أطراف ثالثة مؤثرة في الخريطة:**")
+        st.warning("⚠️ **تم رصد أطراف ثالثة مؤثرة ومؤكدة فلكياً:**")
         for tp_title, tp_desc in third_parties_found:
             st.markdown(f"- **{tp_title}:** {tp_desc}")
     else:
-        st.success("✅ الخريطة نظيفة تماماً من تدخلات الأطراف الثالثة؛ الحدث محصور كلياً وثنائياً بين الطرفين.")
+        st.success("✅ الخريطة خالية من أي تدخلات حقيقية للأطراف الثالثة؛ الحدث ثنائي ومحصور كلياً بين الطرفين.")
 
     # ==========================================
     # 🔄 التحليل المتطور للعودة والزمن المتوقع
@@ -397,54 +373,49 @@ if st.button("🔮 تحليل خريطة الحدث العاطفي"):
         st.markdown("---")
         st.markdown("### 🔄 تحليل إمكانية عودة التواصل (Reconciliation Analysis)")
 
-        p1_sign = planet_data[party1_ruler]["sign"]
-        p2_sign = planet_data[party2_ruler]["sign"]
-        
         if planet_data[party2_ruler]["retro"]:
             can_return = True
-            return_reasons.append(f"حاكم الشريك ({party2_ruler}) في حالة تراجع، وهذه دلالة قوية على إعادة التفكير ورغبة الشريك في التراجع عن قرار الابتعاد.")
-
-        if RULERS.get(p1_sign) == party2_ruler or RULERS.get(p2_sign) == party1_ruler:
-            can_return = True
-            return_reasons.append("وجود استقبال ومودة بين حكّام الخريطة يدعم بقوة رغبة الأطراف في إعادة فتح قنوات التواصل.")
+            return_reasons.append(f"حاكم الشريك ({party2_ruler}) في حالة تراجع، وهي دلالة تقليدية قوية على رغبة الشريك في مراجعة قرار الابتعاد.")
 
         if has_aspect and asp_type == "positive" and asp_status == "Applying":
             can_return = True
-            return_reasons.append(f"وجود اتصال إيجابي قادم ومنطبق ({asp_name}) بين حاكم الطالع وحاكم الشريك يفتح باب الصلح واللقاء قريباً.")
+            return_reasons.append(f"وجود اتصال إيجابي قادم ومنطبق ({asp_name}) بين حاكم الطالع وحاكم الشريك يمهد حتماً للصلح.")
 
         if moon_asp_type == "positive" and moon_status == "Applying":
             can_return = True
-            return_reasons.append(f"القمر يصنع اتصالاً إيجابياً مقبلاً ({moon_asp_name}) مع حاكم الشريك، مما يسارع في الصلح.")
+            return_reasons.append(f"القمر يصنع اتصالاً إيجابياً مقبلاً ({moon_asp_name}) مع حاكم الشريك، مما يسارع في تقريب وجهات النظر.")
 
         if can_return:
-            st.success("🌟 **إمكانية العودة والتواصل: واردة وبقوة وفق المعطيات الفلكية!**")
+            st.success("🌟 **إمكانية العودة والتواصل: واردة وبقوة وفق المعطيات الفلكية الدقيقة!**")
             for rr in return_reasons:
                 st.markdown(f"- {rr}")
 
             def calculate_precise_timing(orb_val, sign_name):
                 mod = SIGN_MODALITY.get(sign_name, "كاردينالي")
                 if mod == "كاردينالي":
-                    unit = "أيام"
+                    unit = "أيام (سريعة التطور)"
                 elif mod == "متحرك":
-                    unit = "أسابيع أو أشهر قليلة"
+                    unit = "أسابيع قليلة"
                 else:
-                    unit = "أشهر طويلة"
-                return f"حوالي {orb_val:.1f} {unit}"
+                    unit = "أشهر (تطور بطيء ومتأني)"
+                days_est = max(1, int(orb_val * 1.5))
+                return f"حوالي {days_est} إلى {days_est + 3} {unit} (استناداً لدرجة الانطباخ Orb: {orb_val:.2f}°)"
 
-            timing_res = calculate_precise_timing(moon_orb if moon_status == "Applying" else asp_orb, planet_data["القمر"]["sign"])
+            target_orb = moon_orb if moon_status == "Applying" else asp_orb
+            timing_res = calculate_precise_timing(target_orb, planet_data["القمر"]["sign"])
             st.info(f"⏳ **الوقت المتوقع لعودة التواصل والصلح:** {timing_res}")
         else:
             st.error("🛑 **إمكانية العودة والتواصل: ضعيفة أو متعذرة في الوقت الحالي.**")
-            st.markdown("- غياب الاتصالات الإيجابية المقبلة (Applying) أو وجود الاتصالات منصرفة يعكس تمسك كل طرف بموقفه الحالي.")
+            st.markdown("- غياب الاتصالات الإيجابية المقبلة (Applying) أو وجود اتصالات منصرفة يعكس تمسك كل طرف بموقفه الحالي.")
 
     # ==========================================
-    # تصدير تقرير HTML للجنة المختصين
+    # تصدير تقرير HTML
     # ==========================================
     st.markdown("---")
-    st.markdown("### 🖨️ تصدير التقرير الفلكي لخريطة الحدث العاطفي")
+    st.markdown("### 🖨️ تصدير التقرير الفلكي المصحح لخريطة الحدث العاطفي")
 
     causes_html = "".join([f"<li><strong>{c['category']}:</strong> {c['desc']}</li>" for c in detailed_causes])
-    tp_html = "".join([f"<li><strong>{title}:</strong> {desc}</li>" for title, desc in third_parties_found]) if third_parties_found else "<li>لا توجد أطراف ثالثة مؤثرة؛ الحدث ثنائي بالكامل.</li>"
+    tp_html = "".join([f"<li><strong>{title}:</strong> {desc}</li>" for title, desc in third_parties_found]) if third_parties_found else "<li>لا توجد أطراف ثالثة مؤثرة؛ الحدث ثنائي وبحت.</li>"
     return_html = f"""
     <div class='box'>
         <h3>🔄 إمكانية العودة والتواصل والوقت المتوقع</h3>
@@ -459,7 +430,7 @@ if st.button("🔮 تحليل خريطة الحدث العاطفي"):
     <html lang="ar" dir="rtl">
     <head>
         <meta charset="UTF-8">
-        <title>التقرير الفلكي المتقدم للحدث العاطفي</title>
+        <title>التقرير الفلكي المتقدم والمصحح للحدث العاطفي</title>
         <style>
             body {{ font-family: 'Tahoma', Arial, sans-serif; margin: 40px; color: #222; line-height: 1.8; background: #fff; }}
             h1, h2, h3 {{ color: #3b093c; }}
@@ -470,7 +441,7 @@ if st.button("🔮 تحليل خريطة الحدث العاطفي"):
     </head>
     <body>
         <div class="header">
-            <h1>💖 التقرير الفلكي الاحترافي للحدث العاطفي</h1>
+            <h1>💖 التقرير الفلكي الاحترافي والمصحح للحدث العاطفي</h1>
             <p><strong>برمجة استرو رادار</strong></p>
             <p>تاريخ ووقت الحدث: {ev_date} {ev_time} | الموقع الجغرافي: {selected_country_name}</p>
         </div>
@@ -497,16 +468,16 @@ if st.button("🔮 تحليل خريطة الحدث العاطفي"):
         {return_html}
 
         <div class="footer">
-            <p>تم استخراج هذا التقرير الفلكي المتقدم وفق أحدث أصول ومراجع التنجيم الساعي الغربي وريغومونتانوس.</p>
+            <p>تم استخراج هذا التقرير الفلكي وفق أصول التنجيم الساعي الغربي ونظام ريغومونتانوس.</p>
         </div>
     </body>
     </html>
     """
 
     st.download_button(
-        label="📥 تحميل التقرير الكامل (HTML)",
+        label="📥 تحميل التقرير الكامل المصحح (HTML)",
         data=html_content,
-        file_name=f"Expert_Emotional_Event_Report_{ev_date}.html",
+        file_name=f"Expert_Corrected_Report_{ev_date}.html",
         mime="text/html",
         use_container_width=True
     )
